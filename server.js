@@ -1,62 +1,47 @@
+// server.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+require('dotenv').config();
+const cors = require('cors'); // <-- 1. IMPORT IT HERE
 
-// 1. Initialize Express and the HTTP server
+const connectDB = require('./db');
+const initializeSocket = require('./socketHandler');
+const authRoutes = require('./auth');
+
+// Initialize App
 const app = express();
 const server = http.createServer(app);
 
-// 2. Attach Socket.IO and configure CORS to allow all connections
+// This is the Socket.IO specific CORS for its own connections. Keep it.
 const io = new Server(server, {
   cors: {
-    origin: "*", // This is the crucial part that prevents the error
+    origin: "http://localhost:5173",
     methods: ["GET", "POST"]
   }
 });
 
-// This object will temporarily store our online users
-const onlineUsers = {};
+// Connect to Database
+connectDB();
 
-// 3. Listen for new connections
-io.on('connection', (socket) => {
-  console.log(`A user connected with socket ID: ${socket.id}`);
+// ===================================================================
+// === USE THE CORS MIDDLEWARE FOR ALL EXPRESS API ROUTES ===
+// This will handle the preflight requests correctly.
+app.use(cors({
+    origin: "http://localhost:5173" 
+}));
+// ===================================================================
 
-  // Listen for a user to register with their unique ID
-  socket.on('register', (userId) => {
-    onlineUsers[userId] = socket.id;
-    console.log(`User registered: ${userId} with socket ID: ${socket.id}`);
-    console.log("Current online users:", onlineUsers);
-  });
 
-  // Listen for a private message
-  socket.on('private_message', ({ recipientId, content }) => {
-    console.log(`Message from socket ${socket.id} to user ${recipientId}: ${content}`);
-    const recipientSocketId = onlineUsers[recipientId];
-    
-    if (recipientSocketId) {
-      const senderId = Object.keys(onlineUsers).find(key => onlineUsers[key] === socket.id);
-      io.to(recipientSocketId).emit('new_message', {
-        sender: senderId || 'Unknown',
-        content: content,
-      });
-    } else {
-      console.log(`User ${recipientId} is not online.`);
-    }
-  });
+// Middlewares
+app.use(express.json()); // Allows us to accept JSON in request body
 
-  // Clean up when a user disconnects
-  socket.on('disconnect', () => {
-    const disconnectedUserId = Object.keys(onlineUsers).find(key => onlineUsers[key] === socket.id);
-    if (disconnectedUserId) {
-      delete onlineUsers[disconnectedUserId];
-      console.log(`User ${disconnectedUserId} disconnected and was removed.`);
-      console.log("Current online users:", onlineUsers);
-    }
-  });
-});
+// Define Routes
+app.use('/api/auth', authRoutes);
 
-// 4. Define the port and start the server
+// Initialize Socket.IO Handler
+initializeSocket(io);
+
+// Start Server
 const PORT = process.env.PORT || 3002;
-server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server started on port ${PORT}`));
